@@ -6,7 +6,7 @@ This is a very basic implementation where Get, GetWithTimeout, isCompleted, isCa
 # how to use
 
 ```
-future := new Future( func() T{
+future := newFuture( func() T{
     ...
   }
 )

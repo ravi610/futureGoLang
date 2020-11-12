@@ -16,6 +16,7 @@ func newFuture(f func() Result) *FutureTask {
 	go func() {
 		result := f()
 		channel <- result
+		close(channel)
 	}()
 
 	return &futureTask
@@ -26,8 +27,15 @@ func (futureTask *FutureTask) get() Result {
 		return futureTask.result
 	}
 	futureTask.result = <-futureTask.interfaceChannel
-	futureTask.success = true
+
+	if futureTask.result.resultValue == nil {
+		futureTask.success = false
+	} else {
+		futureTask.success = true
+	}
+
 	futureTask.done = true
+
 	return futureTask.result
 }
 
@@ -44,6 +52,7 @@ func (futureTask *FutureTask) getWithTimeout(timeout time.Duration) Result {
 	case <-timeoutChannel:
 		futureTask.done = true
 		futureTask.success = false
+		futureTask.result = Result{resultValue: nil, errorMessage: "timeout"}
 	}
 	return futureTask.result
 }
@@ -71,9 +80,11 @@ func (futureTask *FutureTask) cancel() {
 		return
 	}
 
-	futureTask.done = true
 	futureTask.success = false
 	futureTask.canceled = true
-	futureTask.result = Result{resultValue: nil}
-	futureTask.interfaceChannel <- futureTask.result
+	futureTask.result = Result{resultValue: nil, errorMessage: "cancelled"}
+	go func() {
+		futureTask.interfaceChannel <- futureTask.result
+		futureTask.done = true
+	}()
 }

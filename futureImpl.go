@@ -1,54 +1,68 @@
 package main
 
-import "time"
+import (
+	"time"
+)
 
 func newFuture(f func() Result) *FutureTask {
-	channel := make(chan Result)
+	taskChannel := make(chan Result)
+	errorChannel := make(chan Result)
+	resultChannel := make(chan Result)
 
 	futureTask := FutureTask{
-		success:          false,
-		done:             false,
-		canceled:         false,
-		result:           Result{},
-		interfaceChannel: channel,
+		success:       false,
+		done:          false,
+		canceled:      false,
+		result:        Result{},
+		taskChannel:   taskChannel,
+		errorChannel:  errorChannel,
+		resultChannel: resultChannel,
 	}
 
 	go func() {
 		result := f()
-		channel <- result
-		close(channel)
+		taskChannel <- result
+	}()
+
+	go func() {
+		select {
+		case res := <-futureTask.taskChannel:
+			futureTask.result = res
+			futureTask.success = true
+			futureTask.done = true
+			resultChannel <- futureTask.result
+		case res2 := <-futureTask.errorChannel:
+			futureTask.result = res2
+			futureTask.success = false
+			if futureTask.result.errorMessage == "cancelled" {
+				futureTask.canceled = true
+			}
+			futureTask.done = true
+			resultChannel <- futureTask.result
+		}
 	}()
 
 	return &futureTask
 }
 
 func (futureTask *FutureTask) get() Result {
-	if futureTask.done {
+	if futureTask.isComplete() || futureTask.isCancelled() {
 		return futureTask.result
 	}
-	futureTask.result = <-futureTask.interfaceChannel
 
-	if futureTask.result.resultValue == nil {
-		futureTask.success = false
-	} else {
-		futureTask.success = true
-	}
-
-	futureTask.done = true
-
+	futureTask.result = <-futureTask.resultChannel
 	return futureTask.result
 }
 
 func (futureTask *FutureTask) getWithTimeout(timeout time.Duration) Result {
-	if futureTask.done {
+	if futureTask.isComplete() || futureTask.isCancelled() {
 		return futureTask.result
 	}
+
 	timeoutChannel := time.After(timeout)
 	select {
-	case res := <-futureTask.interfaceChannel:
+	case res := <-futureTask.resultChannel:
 		futureTask.result = res
-		futureTask.success = true
-		futureTask.done = true
 	case <-timeoutChannel:
 		futureTask.done = true
 		futureTask.success = false
@@ -66,10 +80,8 @@ func (futureTask *FutureTask) isComplete() bool {
 }
 
 func (futureTask *FutureTask) isCancelled() bool {
-	if futureTask.done {
-		if futureTask.canceled {
-			return true
-		}
+	if futureTask.done && futureTask.canceled {
+		return true
 	}
 
 	return false
@@ -80,11 +92,7 @@ func (futureTask *FutureTask) cancel() {
 		return
 	}
 
-	futureTask.success = false
-	futureTask.canceled = true
-	futureTask.result = Result{resultValue: nil, errorMessage: "cancelled"}
 	go func() {
-		futureTask.interfaceChannel <- futureTask.result
-		futureTask.done = true
+		futureTask.errorChannel <- Result{resultValue: nil, errorMessage: "cancelled"}
 	}()
 }

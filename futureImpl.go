@@ -92,7 +92,5 @@ func (futureTask *FutureTask) cancel() {
 		return
 	}
 
-	go func() {
-		futureTask.errorChannel <- Result{resultValue: nil, errorMessage: "cancelled"}
-	}()
+	futureTask.errorChannel <- Result{resultValue: nil, errorMessage: "cancelled"}
 }
